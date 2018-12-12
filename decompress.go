@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 )
 
 var TruncatedInput = errors.New("Truncated input")
@@ -226,6 +227,12 @@ func Decompress(data []byte) ([]byte, error) {
 			case CtrlReset2:
 				scheme = Scheme2
 				history.Reset()
+
+			case CtrlEndMarker:
+				if len(result) == 0 {
+					// End marker at the beginning of the data.
+					return nil, io.EOF
+				}
 
 			default:
 				fmt.Printf("Unknown Control %s, result so far:\n%s",
