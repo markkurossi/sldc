@@ -17,17 +17,23 @@ import (
 	"io"
 )
 
-var TruncatedInput = errors.New("Truncated input")
+// ErrTruncatedInput is an error that is returned when the input
+// stream is truncated.
+var ErrTruncatedInput = errors.New("Truncated input")
 
+// Scheme specifies compression scheme.
 type Scheme int
 
+// Known compression schemes.
 const (
 	Scheme1 Scheme = iota + 1
 	Scheme2
 )
 
+// Ctrl specifies control words.
 type Ctrl int
 
+// Known control words.
 const (
 	CtrlFlush Ctrl = iota
 	CtrlScheme1
@@ -58,25 +64,28 @@ func (c Ctrl) String() string {
 	return fmt.Sprintf("{ctrl %d}", c)
 }
 
-type input struct {
+// Input implements an input stream.
+type Input struct {
 	data []byte
 	ofs  int
 	bits int
 }
 
-func NewInput(data []byte) *input {
-	return &input{
+// NewInput creates a new input object.
+func NewInput(data []byte) *Input {
+	return &Input{
 		data: data,
 		bits: 8,
 	}
 }
 
 // Avail returns the number of bits available.
-func (in *input) Avail() int {
+func (in *Input) Avail() int {
 	return (len(in.data)-in.ofs-1)*8 + in.bits
 }
 
-func (in *input) Get(bits int) (val uint32, err error) {
+// Get gets the specified number of bits from the input.
+func (in *Input) Get(bits int) (val uint32, err error) {
 	if in.bits > bits {
 		left := in.bits - bits
 		val = uint32(in.data[in.ofs] >> uint(left))
@@ -93,7 +102,7 @@ func (in *input) Get(bits int) (val uint32, err error) {
 
 	for bits >= 8 {
 		if in.ofs >= len(in.data) {
-			err = TruncatedInput
+			err = ErrTruncatedInput
 			return
 		}
 		val <<= 8
@@ -104,7 +113,7 @@ func (in *input) Get(bits int) (val uint32, err error) {
 
 	if bits > 0 {
 		if in.ofs >= len(in.data) {
-			err = TruncatedInput
+			err = ErrTruncatedInput
 			return
 		}
 		val <<= uint(bits)
@@ -118,7 +127,9 @@ func (in *input) Get(bits int) (val uint32, err error) {
 	return
 }
 
-func (in *input) Peek(bits int) (val uint32, err error) {
+// Peek returns the specified number of bits from the input without
+// updating the input position.
+func (in *Input) Peek(bits int) (val uint32, err error) {
 	savedOfs := in.ofs
 	savedBits := in.bits
 
@@ -129,12 +140,14 @@ func (in *input) Peek(bits int) (val uint32, err error) {
 	return
 }
 
-func (in *input) IsCtrl() bool {
+// IsCtrl tests if the next input is a control word.
+func (in *Input) IsCtrl() bool {
 	val, err := in.Peek(9)
 	return err == nil && val == 0x1ff
 }
 
-func (in *input) Ctrl() (Ctrl, error) {
+// Ctrl gets the next control word.
+func (in *Input) Ctrl() (Ctrl, error) {
 	val, err := in.Get(9)
 	if err != nil || val != 0x1ff {
 		return CtrlEOR, err
@@ -143,27 +156,31 @@ func (in *input) Ctrl() (Ctrl, error) {
 	return Ctrl(val), err
 }
 
-func (in *input) Align() error {
+// Align aligns input to the next four byte boundary.
+func (in *Input) Align() error {
 	for (in.ofs%4) != 0 && in.ofs < len(in.data) {
 		in.ofs++
 	}
 	if (in.ofs % 4) != 0 {
-		return TruncatedInput
+		return ErrTruncatedInput
 	}
 	return nil
 }
 
+// History implements an input history.
 type History struct {
 	data []byte
 	pos  int
 }
 
+// NewHistory creates a new history object.
 func NewHistory() *History {
 	return &History{
 		data: make([]byte, 1024),
 	}
 }
 
+// Add adds a byte to the history.
 func (h *History) Add(b byte) {
 	h.data[h.pos] = b
 	h.pos++
@@ -172,6 +189,7 @@ func (h *History) Add(b byte) {
 	}
 }
 
+// Get gets the byte from the specified offset of the history.
 func (h *History) Get(ofs int) (byte, int) {
 	if ofs < 0 || ofs >= len(h.data) {
 		panic(fmt.Sprintf("Invalid displacement %d", ofs))
@@ -184,10 +202,12 @@ func (h *History) Get(ofs int) (byte, int) {
 	return b, ofs
 }
 
+// Reset resets the history.
 func (h *History) Reset() {
 	h.pos = 0
 }
 
+// Decompress decompresses the data.
 func Decompress(data []byte) ([]byte, error) {
 	input := NewInput(data)
 	scheme := Scheme1
@@ -314,5 +334,4 @@ func Decompress(data []byte) ([]byte, error) {
 			return nil, fmt.Errorf("Scheme 2 rules not implemented yet")
 		}
 	}
-	return nil, nil
 }
